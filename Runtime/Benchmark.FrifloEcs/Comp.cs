@@ -4,7 +4,7 @@ using Friflo.Engine.ECS;
 using Unity.Mathematics;
 using Position = Benchmark.Core.Components.Position;
 
-namespace Benchmark.Friflo
+namespace Benchmark.FrifloEcs
 {
 
 public struct CompPosition : IComponent

@@ -1,6 +1,6 @@
 {
-    "name": "Benchmark.Friflo",
-    "rootNamespace": "Benchmark.Friflo",
+    "name": "Benchmark.FrifloEcs",
+    "rootNamespace": "Benchmark.FrifloEcs",
     "references": [
         "Benchmark.Core",
         "Unity.Mathematics"

@@ -8,7 +8,7 @@ using Friflo.Engine.ECS;
 using Friflo.Engine.ECS.Systems;
 using StableHash32 = Benchmark.Core.Hash.StableHash32;
 
-namespace Benchmark.Friflo
+namespace Benchmark.FrifloEcs
 {
 
 public class ContextFriflo : ContextBase

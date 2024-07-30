@@ -1,6 +1,6 @@
 using Friflo.Engine.ECS;
 
-namespace Benchmark.Friflo
+namespace Benchmark.FrifloEcs
 {
 
 public struct TagSpawn : ITag {}
