@@ -11,11 +11,11 @@ using StableHash32 = Benchmark.Core.Hash.StableHash32;
 namespace Benchmark.FrifloEcs
 {
 
-public class ContextFriflo : ContextBase
+public class ContextFrifloEcs : ContextBase
 {
 	private SystemRoot? _root;
 
-	static ContextFriflo()
+	static ContextFrifloEcs()
 	{
 		if (RuntimeFeature.IsDynamicCodeSupported)
 			return;
@@ -37,8 +37,8 @@ public class ContextFriflo : ContextBase
 		aot.CreateSchema();
 	}
 
-	public ContextFriflo()
-		: base("Friflo") {}
+	public ContextFrifloEcs()
+		: base("Friflo Ecs") {}
 
 	protected override void DoSetup()
 	{
