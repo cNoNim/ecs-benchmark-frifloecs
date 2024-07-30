@@ -1,0 +1,23 @@
+{
+    "name": "Benchmark.Friflo",
+    "rootNamespace": "Benchmark.Friflo",
+    "references": [
+        "Benchmark.Core",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Friflo.Engine.ECS.dll",
+        "Friflo.Json.Burst.dll",
+        "Friflo.Json.Fliox.Annotation.dll",
+        "Friflo.Json.Fliox.dll",
+        "System.Runtime.CompilerServices.Unsafe.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

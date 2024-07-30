@@ -1,0 +1,21 @@
+{
+  "name": "ecs.benchmark.frifloecs",
+  "author": {
+    "name": "cNoNim",
+    "url": "https://github.com/cNoNim"
+  },
+  "displayName": "ECS Benchmark Friflo Ecs",
+  "description": "ECS Benchmark Friflo Ecs",
+  "unity": "2020.3",
+  "version": "1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cNoNim/ecs-benchmark-core.git"
+  },
+  "dependencies": {},
+  "keywords": [
+    "ecs",
+    "benchmark",
+    "frifloecs"
+  ]
+}
