@@ -140,8 +140,13 @@ public class ContextFrifloEcs : ContextBase
 
 	private class UpdateDataSystem : QuerySystem<CompData>
 	{
-		protected override void OnUpdate() =>
-			Query.ForEachEntity(static (ref CompData data, Entity _) => UpdateDataSystemForEach(ref data.V));
+		protected override void OnUpdate() {
+			foreach (var (data, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					UpdateDataSystemForEach(ref data[n].V);
+				}
+			}
+		}
 	}
 
 	private class UpdateVelocitySystem : QuerySystem<CompVelocity, CompUnit, CompData, CompPosition>
@@ -149,18 +154,18 @@ public class ContextFrifloEcs : ContextBase
 		public UpdateVelocitySystem() =>
 			Filter.WithoutAnyTags(Tags.Get<TagDead>());
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity(
-				static (
-					ref CompVelocity velocity,
-					ref CompUnit unit,
-					ref CompData data,
-					ref CompPosition position,
-					Entity _) => UpdateVelocitySystemForEach(
-					ref velocity.V,
-					ref unit.V,
-					in data.V,
-					in position.V));
+		protected override void OnUpdate()
+		{
+			foreach (var (velocity, unit, data, position, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					UpdateVelocitySystemForEach(
+						ref velocity[n].V,
+						ref unit[n].V,
+						in data[n].V,
+						in position[n].V);
+				}
+			}
+		}
 	}
 
 	private class MovementSystem : QuerySystem<CompPosition, CompVelocity>
@@ -168,10 +173,14 @@ public class ContextFrifloEcs : ContextBase
 		public MovementSystem() =>
 			Filter.WithoutAnyTags(Tags.Get<TagDead>());
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity(
-				static (ref CompPosition position, ref CompVelocity velocity, Entity _) =>
-					MovementSystemForEach(ref position.V, in velocity.V));
+		protected override void OnUpdate()
+		{
+			foreach (var (position, velocity, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					MovementSystemForEach(ref position[n].V, in velocity[n].V);
+				}
+			}
+		}
 	}
 
 	private class AttackSystem : QuerySystem<CompUnit, CompData, CompDamage, CompPosition>
@@ -200,7 +209,7 @@ public class ContextFrifloEcs : ContextBase
 			var i = 0;
 			foreach (var (unitChunk, _, _, positionChunk, entities) in Query.Chunks)
 			{
-				var ids       = entities.Ids;
+				var ids = entities.Ids;
 				var units     = unitChunk.Span;
 				var positions = positionChunk.Span;
 				for (var n = 0; n < ids.Length; n++)
@@ -214,7 +223,6 @@ public class ContextFrifloEcs : ContextBase
 
 		private void CreateAttacks(Target<int>[] targets, int count)
 		{
-			var commandBuffer = CommandBuffer;
 			var store         = Query.Store;
 			foreach (var (unitChunk, dataChunk, damageChunk, positionChunk, entities) in Query.Chunks)
 			{
@@ -235,19 +243,16 @@ public class ContextFrifloEcs : ContextBase
 					if (tick % damage.Cooldown != 0)
 						continue;
 
-					ref readonly var position     = ref positions[n].V;
-					var              generator    = new RandomGenerator(unit.Seed);
-					var              index        = generator.Random(ref unit.Counter, count);
-					var              target       = targets[index];
-					var              attackEntity = commandBuffer.CreateEntity();
-					commandBuffer.AddComponent(
-						attackEntity,
-						new AttackEntity
-						{
-							Target = store.GetEntityById(target.Entity),
-							Damage = damages[n].V.Attack,
-							Ticks  = Common.AttackTicks(position.V, target.Position),
-						});
+					ref readonly var position  = ref positions[n].V;
+					var              generator = new RandomGenerator(unit.Seed);
+					var              index     = generator.Random(ref unit.Counter, count);
+					var              target    = targets[index];
+					store.CreateEntity(new AttackEntity
+					{
+						Target = store.GetEntityById(target.Entity),
+						Damage = damage.Attack,
+						Ticks  = Common.AttackTicks(position.V, target.Position),
+					});
 				}
 			}
 		}
@@ -260,27 +265,33 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			foreach (var entity in Query.Entities)
+			var commandBuffer = CommandBuffer;
+			foreach (var (attackChunk, entities) in Query.Chunks)
 			{
-				ref var attack = ref entity.GetComponent<AttackEntity>();
-				if (attack.Ticks-- > 0)
-					continue;
+				var ids = entities.Ids;
+				for (int n = 0; n < entities.Length; n++)
+				{
+					var     entity = ids[n];
+					ref var attack = ref attackChunk[n];
+					if (attack.Ticks-- > 0)
+						continue;
 
-				var target       = attack.Target;
-				var attackDamage = attack.Damage;
+					var target       = attack.Target;
+					var attackDamage = attack.Damage;
 
-				CommandBuffer.DeleteEntity(entity.Id);
+					commandBuffer.DeleteEntity(entity);
 
-				if (target.IsNull
-				 || target.Tags.Has<TagDead>())
-					continue;
+					var targetData	= target.Data;
+					if (targetData.IsNull || targetData.Tags.Has<TagDead>())
+					{
+						continue;
+					}
+					ref var          health = ref targetData.Get<CompHealth>().V;
+					ref readonly var damage = ref targetData.Get<CompDamage>().V;
 
-				ref var health = ref target.GetComponent<CompHealth>()
-										   .V;
-				ref readonly var damage = ref target.GetComponent<CompDamage>()
-													.V;
-				var totalDamage = attackDamage - damage.Defence;
-				health.Hp -= totalDamage;
+					var totalDamage = attackDamage - damage.Defence;
+					health.Hp -= totalDamage;
+				}
 			}
 		}
 	}
@@ -290,20 +301,19 @@ public class ContextFrifloEcs : ContextBase
 		public KillSystem() =>
 			Filter.WithoutAnyTags(Tags.Get<TagDead>());
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity(
-				(
-					ref CompHealth health,
-					ref CompUnit unit,
-					ref CompData data,
-					Entity entity) =>
-				{
-					if (health.V.Hp > 0)
-						return;
-
-					CommandBuffer.AddTag<TagDead>(entity.Id);
-					unit.V.RespawnTick = data.V.Tick + RespawnTicks;
-				});
+		protected override void OnUpdate()
+		{
+			var commandBuffer = CommandBuffer;
+			foreach (var (healthChunk, unitChunk, dataChunk, entities) in Query.Chunks) {
+				var ids = entities.Ids;
+				for (int n = 0; n < entities.Length; n++) {
+					if (healthChunk[n].V.Hp > 0)
+						continue;
+					commandBuffer.AddTag<TagDead>(ids[n]);
+					unitChunk[n].V.RespawnTick = dataChunk[n].V.Tick + RespawnTicks;
+				}
+			}
+		}
 	}
 
 	private class StateSpriteSystem<TTag> : QuerySystem<CompSprite>
@@ -317,8 +327,14 @@ public class ContextFrifloEcs : ContextBase
 			Filter.AllTags(Tags.Get<TTag>());
 		}
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity((ref CompSprite sprite, Entity _) => sprite.V.Character = _sprite);
+		protected override void OnUpdate()
+		{
+			foreach (var (sprite, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					sprite[n].V.Character = _sprite;
+				}
+			}
+		}
 	}
 
 	private class UnitSpriteSystem<TTag> : QuerySystem<CompSprite>
@@ -333,8 +349,14 @@ public class ContextFrifloEcs : ContextBase
 				  .WithoutAnyTags(Tags.Get<TagSpawn, TagDead>());
 		}
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity((ref CompSprite sprite, Entity _) => sprite.V.Character = _sprite);
+		protected override void OnUpdate()
+		{
+			foreach (var (sprite, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					sprite[n].V.Character = _sprite;
+				}
+			}
+		}
 	}
 
 	private class RenderSystem : QuerySystem<CompPosition, CompSprite, CompUnit, CompData>
@@ -344,19 +366,20 @@ public class ContextFrifloEcs : ContextBase
 		public RenderSystem(Framebuffer framebuffer) =>
 			_framebuffer = framebuffer;
 
-		protected override void OnUpdate() =>
-			Query.ForEachEntity(
-				(
-					ref CompPosition position,
-					ref CompSprite sprite,
-					ref CompUnit unit,
-					ref CompData data,
-					Entity _) => RenderSystemForEach(
-					_framebuffer,
-					in position.V,
-					in sprite.V,
-					in unit.V,
-					in data.V));
+		protected override void OnUpdate()
+		{
+			var fb = _framebuffer;
+			foreach (var (position, sprite, unit, data, entities) in Query.Chunks) {
+				for (int n = 0; n < entities.Length; n++) {
+					RenderSystemForEach(
+						fb,
+						in position[n].V,
+						in sprite[n].V,
+						in unit[n].V,
+						in data[n].V);
+				}
+			}
+		}
 	}
 
 	private class RespawnSystem : QuerySystem<CompUnit, CompData>
