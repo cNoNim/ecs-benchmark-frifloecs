@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using Benchmark.Core;
+using Benchmark.Core.Algorithms;
 using Benchmark.Core.Components;
 using Benchmark.Core.Random;
 using Friflo.Engine.ECS;
@@ -140,9 +141,12 @@ public class ContextFrifloEcs : ContextBase
 
 	private class UpdateDataSystem : QuerySystem<CompData>
 	{
-		protected override void OnUpdate() {
-			foreach (var (data, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+		protected override void OnUpdate()
+		{
+			foreach (var (data, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					UpdateDataSystemForEach(ref data[n].V);
 				}
 			}
@@ -156,8 +160,10 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			foreach (var (velocity, unit, data, position, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+			foreach (var (velocity, unit, data, position, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					UpdateVelocitySystemForEach(
 						ref velocity[n].V,
 						ref unit[n].V,
@@ -175,8 +181,10 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			foreach (var (position, velocity, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+			foreach (var (position, velocity, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					MovementSystemForEach(ref position[n].V, in velocity[n].V);
 				}
 			}
@@ -190,26 +198,24 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			var count   = Query.Count;
-			var keys    = ArrayPool<ulong>.Shared.Rent(count);
-			var targets = ArrayPool<Target<int>>.Shared.Rent(count);
+			var count       = Query.Count;
+			var keys        = ArrayPool<uint>.Shared.Rent(count);
+			var indirection = ArrayPool<int>.Shared.Rent(count);
+			var targets     = ArrayPool<Target<int>>.Shared.Rent(count);
 			FillTargets(keys, targets);
-			Array.Sort(
-				keys,
-				targets,
-				0,
-				count);
-			CreateAttacks(targets, count);
-			ArrayPool<ulong>.Shared.Return(keys);
+			RadixSort.SortWithIndirection(keys, indirection, count);
+			ArrayPool<uint>.Shared.Return(keys);
+			CreateAttacks(indirection, targets.AsSpan(0, count));
+			ArrayPool<int>.Shared.Return(indirection);
 			ArrayPool<Target<int>>.Shared.Return(targets);
 		}
 
-		private void FillTargets(ulong[] keys, Target<int>[] targets)
+		private void FillTargets(Span<uint> keys, Span<Target<int>> targets)
 		{
 			var i = 0;
 			foreach (var (unitChunk, _, _, positionChunk, entities) in Query.Chunks)
 			{
-				var ids = entities.Ids;
+				var ids       = entities.Ids;
 				var units     = unitChunk.Span;
 				var positions = positionChunk.Span;
 				for (var n = 0; n < ids.Length; n++)
@@ -221,9 +227,10 @@ public class ContextFrifloEcs : ContextBase
 			}
 		}
 
-		private void CreateAttacks(Target<int>[] targets, int count)
+		private void CreateAttacks(ReadOnlySpan<int> indirection, ReadOnlySpan<Target<int>> targets)
 		{
-			var store         = Query.Store;
+			var count = targets.Length;
+			var store = Query.Store;
 			foreach (var (unitChunk, dataChunk, damageChunk, positionChunk, entities) in Query.Chunks)
 			{
 				var ids       = entities.Ids;
@@ -246,13 +253,14 @@ public class ContextFrifloEcs : ContextBase
 					ref readonly var position  = ref positions[n].V;
 					var              generator = new RandomGenerator(unit.Seed);
 					var              index     = generator.Random(ref unit.Counter, count);
-					var              target    = targets[index];
-					store.CreateEntity(new AttackEntity
-					{
-						Target = store.GetEntityById(target.Entity),
-						Damage = damage.Attack,
-						Ticks  = Common.AttackTicks(position.V, target.Position),
-					});
+					var              target    = targets[indirection[index]];
+					store.CreateEntity(
+						new AttackEntity
+						{
+							Target = store.GetEntityById(target.Entity),
+							Damage = damage.Attack,
+							Ticks  = Common.AttackTicks(position.V, target.Position),
+						});
 				}
 			}
 		}
@@ -281,13 +289,16 @@ public class ContextFrifloEcs : ContextBase
 
 					commandBuffer.DeleteEntity(entity);
 
-					var targetData	= target.Data;
-					if (targetData.IsNull || targetData.Tags.Has<TagDead>())
+					var targetData = target.Data;
+					if (targetData.IsNull
+					 || targetData.Tags.Has<TagDead>())
 					{
 						continue;
 					}
-					ref var          health = ref targetData.Get<CompHealth>().V;
-					ref readonly var damage = ref targetData.Get<CompDamage>().V;
+					ref var health = ref targetData.Get<CompHealth>()
+												   .V;
+					ref readonly var damage = ref targetData.Get<CompDamage>()
+															.V;
 
 					var totalDamage = attackDamage - damage.Defence;
 					health.Hp -= totalDamage;
@@ -304,9 +315,11 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			var commandBuffer = CommandBuffer;
-			foreach (var (healthChunk, unitChunk, dataChunk, entities) in Query.Chunks) {
+			foreach (var (healthChunk, unitChunk, dataChunk, entities) in Query.Chunks)
+			{
 				var ids = entities.Ids;
-				for (int n = 0; n < entities.Length; n++) {
+				for (int n = 0; n < entities.Length; n++)
+				{
 					if (healthChunk[n].V.Hp > 0)
 						continue;
 					commandBuffer.AddTag<TagDead>(ids[n]);
@@ -329,8 +342,10 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			foreach (var (sprite, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+			foreach (var (sprite, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					sprite[n].V.Character = _sprite;
 				}
 			}
@@ -351,8 +366,10 @@ public class ContextFrifloEcs : ContextBase
 
 		protected override void OnUpdate()
 		{
-			foreach (var (sprite, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+			foreach (var (sprite, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					sprite[n].V.Character = _sprite;
 				}
 			}
@@ -369,8 +386,10 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			var fb = _framebuffer;
-			foreach (var (position, sprite, unit, data, entities) in Query.Chunks) {
-				for (int n = 0; n < entities.Length; n++) {
+			foreach (var (position, sprite, unit, data, entities) in Query.Chunks)
+			{
+				for (int n = 0; n < entities.Length; n++)
+				{
 					RenderSystemForEach(
 						fb,
 						in position[n].V,
