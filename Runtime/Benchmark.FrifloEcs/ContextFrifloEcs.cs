@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Runtime.CompilerServices;
 using Benchmark.Core;
 using Benchmark.Core.Algorithms;
 using Benchmark.Core.Components;
@@ -14,29 +13,10 @@ namespace Benchmark.FrifloEcs
 
 public class ContextFrifloEcs : ContextBase
 {
+	static ContextFrifloEcs() =>
+		Schema.Create();
+
 	private SystemRoot? _root;
-
-	static ContextFrifloEcs()
-	{
-		if (RuntimeFeature.IsDynamicCodeSupported)
-			return;
-
-		var aot = new NativeAOT();
-		aot.RegisterComponent<CompPosition>();
-		aot.RegisterComponent<CompVelocity>();
-		aot.RegisterComponent<CompSprite>();
-		aot.RegisterComponent<CompUnit>();
-		aot.RegisterComponent<CompData>();
-		aot.RegisterComponent<CompHealth>();
-		aot.RegisterComponent<CompDamage>();
-		aot.RegisterComponent<AttackEntity>();
-		aot.RegisterTag<TagSpawn>();
-		aot.RegisterTag<TagDead>();
-		aot.RegisterTag<TagNPC>();
-		aot.RegisterTag<TagHero>();
-		aot.RegisterTag<TagMonster>();
-		aot.CreateSchema();
-	}
 
 	public ContextFrifloEcs()
 		: base("Friflo Ecs") {}
@@ -277,31 +257,24 @@ public class ContextFrifloEcs : ContextBase
 			foreach (var (attackChunk, entities) in Query.Chunks)
 			{
 				var ids = entities.Ids;
-				for (int n = 0; n < entities.Length; n++)
+				for (var n = 0; n < entities.Length; n++)
 				{
 					var     entity = ids[n];
 					ref var attack = ref attackChunk[n];
 					if (attack.Ticks-- > 0)
 						continue;
 
-					var target       = attack.Target;
-					var attackDamage = attack.Damage;
-
-					commandBuffer.DeleteEntity(entity);
-
-					var targetData = target.Data;
-					if (targetData.IsNull
-					 || targetData.Tags.Has<TagDead>())
+					var targetData = attack.Target.Data;
+					if (!targetData.IsNull
+					 && !targetData.Tags.Has<TagDead>())
 					{
-						continue;
+						ref var health = ref targetData.Get<CompHealth>()
+													   .V;
+						ref readonly var damage = ref targetData.Get<CompDamage>()
+																.V;
+						ApplyDamageSequential(ref health, in damage, in attack);
 					}
-					ref var health = ref targetData.Get<CompHealth>()
-												   .V;
-					ref readonly var damage = ref targetData.Get<CompDamage>()
-															.V;
-
-					var totalDamage = attackDamage - damage.Defence;
-					health.Hp -= totalDamage;
+					commandBuffer.DeleteEntity(entity);
 				}
 			}
 		}

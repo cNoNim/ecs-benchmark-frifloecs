@@ -70,22 +70,18 @@ public struct CompDamage : IComponent
 		new() { V = value };
 }
 
-public struct AttackEntity : IComponent
+public struct AttackEntity
+	: IComponent,
+	  IAttack
 {
 	public Entity Target;
 	public int    Damage;
 	public int    Ticks;
-}
 
-public struct TargetEntity
-{
-	public Entity Entity;
-	public float2 Position;
-
-	public TargetEntity(Entity entity, Position position)
+	int IAttack.Damage
 	{
-		Entity   = entity;
-		Position = position.V;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		get => Damage;
 	}
 }
 
