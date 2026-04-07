@@ -13,10 +13,10 @@ namespace Benchmark.FrifloEcs
 
 public class ContextFrifloEcs : ContextBase
 {
+	private SystemRoot? _root;
+
 	static ContextFrifloEcs() =>
 		Schema.Create();
-
-	private SystemRoot? _root;
 
 	public ContextFrifloEcs()
 		: base("Friflo Ecs") {}
@@ -65,26 +65,14 @@ public class ContextFrifloEcs : ContextBase
 
 	private class SpawnSystem : QuerySystem<CompUnit, CompData>
 	{
-		private readonly EntityBatch _heroBatch;
-		private readonly EntityBatch _monsterBatch;
-		private readonly EntityBatch _npcBatch;
-
-		public SpawnSystem()
-		{
+		public SpawnSystem() =>
 			Filter.AllTags(Tags.Get<TagSpawn>());
-			_npcBatch = new EntityBatch().AddTag<TagNPC>()
-										 .RemoveTag<TagSpawn>();
-			_heroBatch = new EntityBatch().AddTag<TagHero>()
-										  .RemoveTag<TagSpawn>();
-			_monsterBatch = new EntityBatch().AddTag<TagMonster>()
-											 .RemoveTag<TagSpawn>();
-		}
 
 		protected override void OnUpdate()
 		{
+			var commandBuffer = CommandBuffer;
 			foreach (var entity in Query.Entities)
 			{
-				EntityBatch batch;
 				switch (SpawnUnit(
 							in entity.GetComponent<CompData>()
 									 .V,
@@ -97,24 +85,24 @@ public class ContextFrifloEcs : ContextBase
 							out var velocity))
 				{
 				case UnitType.NPC:
-					batch = _npcBatch;
+					commandBuffer.AddTag<TagNPC>(entity.Id);
 					break;
 				case UnitType.Hero:
-					batch = _heroBatch;
+					commandBuffer.AddTag<TagHero>(entity.Id);
 					break;
 				case UnitType.Monster:
-					batch = _monsterBatch;
+					commandBuffer.AddTag<TagMonster>(entity.Id);
 					break;
 				default:
 					throw new ArgumentOutOfRangeException();
 				}
 
-				batch.Add<CompHealth>(health);
-				batch.Add<CompDamage>(damage);
-				batch.Add<CompSprite>(sprite);
-				batch.Add<CompPosition>(position);
-				batch.Add<CompVelocity>(velocity);
-				batch.ApplyTo(entity);
+				commandBuffer.RemoveTag<TagSpawn>(entity.Id);
+				commandBuffer.AddComponent<CompHealth>(entity.Id, health);
+				commandBuffer.AddComponent<CompDamage>(entity.Id, damage);
+				commandBuffer.AddComponent<CompSprite>(entity.Id, sprite);
+				commandBuffer.AddComponent<CompPosition>(entity.Id, position);
+				commandBuffer.AddComponent<CompVelocity>(entity.Id, velocity);
 			}
 		}
 	}
@@ -124,12 +112,8 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			foreach (var (data, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					UpdateDataSystemForEach(ref data[n].V);
-				}
-			}
 		}
 	}
 
@@ -141,16 +125,12 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			foreach (var (velocity, unit, data, position, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					UpdateVelocitySystemForEach(
 						ref velocity[n].V,
 						ref unit[n].V,
 						in data[n].V,
 						in position[n].V);
-				}
-			}
 		}
 	}
 
@@ -162,12 +142,8 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			foreach (var (position, velocity, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					MovementSystemForEach(ref position[n].V, in velocity[n].V);
-				}
-			}
 		}
 	}
 
@@ -209,8 +185,9 @@ public class ContextFrifloEcs : ContextBase
 
 		private void CreateAttacks(ReadOnlySpan<int> indirection, ReadOnlySpan<Target<int>> targets)
 		{
-			var count = targets.Length;
-			var store = Query.Store;
+			var count         = targets.Length;
+			var store         = Query.Store;
+			var commandBuffer = CommandBuffer;
 			foreach (var (unitChunk, dataChunk, damageChunk, positionChunk, entities) in Query.Chunks)
 			{
 				var ids       = entities.Ids;
@@ -230,11 +207,13 @@ public class ContextFrifloEcs : ContextBase
 					if (tick % damage.Cooldown != 0)
 						continue;
 
-					ref readonly var position  = ref positions[n].V;
-					var              generator = new RandomGenerator(unit.Seed);
-					var              index     = generator.Random(ref unit.Counter, count);
-					var              target    = targets[indirection[index]];
-					store.CreateEntity(
+					ref readonly var position     = ref positions[n].V;
+					var              generator    = new RandomGenerator(unit.Seed);
+					var              index        = generator.Random(ref unit.Counter, count);
+					var              target       = targets[indirection[index]];
+					var              attackEntity = commandBuffer.CreateEntity();
+					commandBuffer.AddComponent(
+						attackEntity,
 						new AttackEntity
 						{
 							Target = store.GetEntityById(target.Entity),
@@ -291,7 +270,7 @@ public class ContextFrifloEcs : ContextBase
 			foreach (var (healthChunk, unitChunk, dataChunk, entities) in Query.Chunks)
 			{
 				var ids = entities.Ids;
-				for (int n = 0; n < entities.Length; n++)
+				for (var n = 0; n < entities.Length; n++)
 				{
 					if (healthChunk[n].V.Hp > 0)
 						continue;
@@ -316,12 +295,8 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			foreach (var (sprite, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					sprite[n].V.Character = _sprite;
-				}
-			}
 		}
 	}
 
@@ -340,12 +315,8 @@ public class ContextFrifloEcs : ContextBase
 		protected override void OnUpdate()
 		{
 			foreach (var (sprite, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					sprite[n].V.Character = _sprite;
-				}
-			}
 		}
 	}
 
@@ -360,17 +331,13 @@ public class ContextFrifloEcs : ContextBase
 		{
 			var fb = _framebuffer;
 			foreach (var (position, sprite, unit, data, entities) in Query.Chunks)
-			{
-				for (int n = 0; n < entities.Length; n++)
-				{
+				for (var n = 0; n < entities.Length; n++)
 					RenderSystemForEach(
 						fb,
 						in position[n].V,
 						in sprite[n].V,
 						in unit[n].V,
 						in data[n].V);
-				}
-			}
 		}
 	}
 
@@ -380,25 +347,24 @@ public class ContextFrifloEcs : ContextBase
 			Filter.AllTags(Tags.Get<TagDead>());
 
 		protected override void OnUpdate() =>
-			Query.ForEachEntity(
-				(ref CompUnit unit, ref CompData data, Entity entity) =>
-				{
-					if (data.V.Tick < unit.V.RespawnTick)
-						return;
+			Query.ForEachEntity((ref CompUnit unit, ref CompData data, Entity entity) =>
+			{
+				if (data.V.Tick < unit.V.RespawnTick)
+					return;
 
-					var commandBuffer = CommandBuffer;
-					var newEntity     = commandBuffer.CreateEntity();
-					commandBuffer.AddTag<TagSpawn>(newEntity);
-					commandBuffer.AddComponent(newEntity, data);
-					commandBuffer.AddComponent<CompUnit>(
-						newEntity,
-						new Unit
-						{
-							Id   = unit.V.Id | (uint) data.V.Tick << 16,
-							Seed = StableHash32.Hash(unit.V.Seed, unit.V.Counter),
-						});
-					commandBuffer.DeleteEntity(entity.Id);
-				});
+				var commandBuffer = CommandBuffer;
+				var newEntity     = commandBuffer.CreateEntity();
+				commandBuffer.AddTag<TagSpawn>(newEntity);
+				commandBuffer.AddComponent(newEntity, data);
+				commandBuffer.AddComponent<CompUnit>(
+					newEntity,
+					new Unit
+					{
+						Id   = unit.V.Id | (uint) data.V.Tick << 16,
+						Seed = StableHash32.Hash(unit.V.Seed, unit.V.Counter),
+					});
+				commandBuffer.DeleteEntity(entity.Id);
+			});
 	}
 }
 
